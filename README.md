@@ -1,2 +1,2 @@
-# tourdeaguasclaras
-Code and data related to the texto Tour de Águas Claras
+# Tour de Águas Claras
+Code and data related to the text Tour de Águas Claras
