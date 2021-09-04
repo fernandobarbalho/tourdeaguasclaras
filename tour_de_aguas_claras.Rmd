@@ -1,0 +1,476 @@
+---
+title: "Tour de Águas Claras"
+author: "Fernando Almeida Barbalho"
+date: "23/08/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(readr)
+library(janitor)
+library(ggplot2)
+library(viridis)
+library(colorspace)
+library(dplyr)
+
+Percurso_01_08_2021 <- read_csv("Percurso_01_08_2021.csv")
+
+Percurso_01_08_2021 <- janitor::clean_names(Percurso_01_08_2021)
+
+
+tempo_total<- Percurso_01_08_2021$total_time_millisecond[1]
+
+detalhe_percurso<- Percurso_01_08_2021[2:NROW(Percurso_01_08_2021),]
+
+detalhe_percurso$speed_km_hour<- detalhe_percurso$speed_meter_per_second * 3.6 
+
+detalhe_percurso$time_POSIXct <- as.character(as.POSIXlt(detalhe_percurso$time_posix_millisecond/1000, origin = "1970-01-01"))
+
+mid_point <- median(detalhe_percurso$speed_km_hour)
+
+max_altitude <- max(detalhe_percurso$altitude_meter)
+
+hora_inicial<- as.POSIXct(detalhe_percurso$time_posix_millisecond[1]/1000, origin = "1970-01-01")
+
+hora_final<- as.POSIXct(detalhe_percurso$time_posix_millisecond[nrow(detalhe_percurso)]/1000, origin = "1970-01-01")
+
+altitude_fortaleza<- 21
+altitude_ny <- 10
+altitude_paris<- 35
+altitude_guaramiranga<- 865
+altitude_santiago<- 570
+alt_max <- trunc(max(detalhe_percurso$altitude_meter))
+alt_min<- trunc(min(detalhe_percurso$altitude_meter))
+
+
+destaque<- c(alt_max, 
+             alt_min, 
+             altitude_fortaleza, 
+             altitude_ny,
+             altitude_paris,
+             altitude_guaramiranga,
+             altitude_santiago)
+
+
+rad2deg <- function(rad) {(rad * 180) / (pi)}
+
+complete_ride_data <- function(df_ride){
+  
+  df_ride$dif_altitude<- c(0,diff(df_ride$altitude_meter, lag=1))
+  
+  df_ride$dif_speed<- c(0,diff(df_ride$speed_meter_per_second, lag=1))
+  df_ride$dif_time<- c(0,diff(df_ride$time_posix_millisecond, lag=1))/1000
+  
+  df_ride$aceleration<- c(0,df_ride$dif_speed[2:NROW(df_ride)] / df_ride$dif_time[2:NROW(df_ride)]) 
+  
+  df_ride$dist_percorrida<- c(0,df_ride$speed_meter_per_second[2:NROW(df_ride)] * df_ride$dif_time[2:NROW(df_ride)])
+  
+  df_ride$dist_acumulada<- cumsum(df_ride$dist_percorrida)
+  
+  
+  df_ride$inclinacao<- c(0,df_ride$dif_altitude[2:NROW(df_ride)]/df_ride$dist_percorrida[2:NROW(df_ride)])
+  
+  df_ride$inclinacao_graus<- c(0, rad2deg(asin(df_ride$inclinacao[2:NROW(df_ride)])) )
+  
+  df_ride
+}
+
+patch_graph<- function(limits=NULL, bottom_altitude =0){
+  
+  df_g<-detalhe_percurso
+    
+  cat(limits)
+  
+  if (!is.null(limits)){
+    df_g<-
+    df_g %>%
+    filter(time_POSIXct>=limits[1]  &
+             time_POSIXct<= limits[2]  )
+  }
+  
+  g<-
+  df_g   %>%
+    ggplot(aes(x= as.POSIXct(time_posix_millisecond/1000, origin = "1970-01-01"))) +
+    geom_segment(aes(color=speed_km_hour, y=bottom_altitude, xend=as.POSIXct(time_posix_millisecond/1000, origin = "1970-01-01"), yend= altitude_meter) ) +
+    scale_color_continuous_sequential(palette = "reds 3")+
+    theme_light() +
+    theme(
+      panel.background  = element_rect(fill="#976C42"), #696969
+      panel.grid = element_blank() ,
+      legend.position = "bottom"
+    )+
+    labs(
+      x= "Horário",
+      y= "Altitude (m)",
+      color  = "Velocidade (km/h)"
+    ) 
+  
+  g
+  
+}
+
+graph_cinematic <- function(df_ride){
+  
+  library(cowplot)
+  
+  g_dist_perc<-
+  df_ride %>%
+    ggplot(aes(x= as.POSIXct(time_posix_millisecond/1000, origin = "1970-01-01"), y= dist_acumulada)) +
+    #geom_line() +
+    geom_smooth()+
+    theme_light() +
+    theme(
+      panel.background  = element_rect(fill="#976C42"),
+      panel.grid = element_blank(),
+      legend.position = "bottom"
+    )+
+    labs(
+      x= "",
+      y= "Distância (m)"
+    ) 
+  
+  g_speed<-
+  df_ride %>%
+    ggplot(aes(x= as.POSIXct(time_posix_millisecond/1000, origin = "1970-01-01"), y= speed_km_hour)) +
+    geom_smooth()+
+    theme(
+      panel.background  = element_rect(fill="#976C42"),
+      panel.grid = element_blank(),
+      legend.position = "bottom"
+    )+
+    labs(
+      x= "",
+      y= "Velocidade (km/h)"
+    )
+  
+  g_aceleration<-
+  df_ride %>%
+    ggplot(aes(x= as.POSIXct(time_posix_millisecond/1000, origin = "1970-01-01"), y= aceleration)) +
+    #geom_line()+
+    geom_hline(yintercept = 0)+
+    geom_smooth()+
+    theme_light() +
+    theme(
+      panel.background  = element_rect(fill="#976C42"),
+      panel.grid = element_blank(),
+      legend.position = "bottom"
+    )+
+    labs(
+      x= "",
+      y= "Aceleração (m/s^2)"
+    )
+  
+  g_slope<-
+  df_ride %>%
+    ggplot(aes(x= as.POSIXct(time_posix_millisecond/1000, origin = "1970-01-01"), y= inclinacao_graus)) +
+    geom_hline(yintercept = 0)+
+    #geom_line()+
+    geom_smooth(fill= "lightblue",level= 0.99)+
+    theme(
+      panel.background  = element_rect(fill="#976C42"),
+      panel.grid = element_blank(),
+      legend.position = "bottom"
+    )+
+    labs(
+      x= "",
+      y= "Inclinação"
+    )
+  
+  
+  
+  cowplot::plot_grid(g_dist_perc,
+                          g_speed,
+                          g_aceleration,
+                          g_slope,
+                          nrow= 4)
+  
+}
+
+
+
+```
+
+
+
+```{r}
+
+detalhe_percurso %>%
+  ggplot(aes(x= as.POSIXct(time_posix_millisecond/1000, origin = "1970-01-01"), y= altitude_meter)) +
+  geom_area(fill = "#976C42") + #cor do solo de Brasília durante a seca
+  geom_hline(yintercept = destaque[-c(3:5)], linetype = 5, alpha = 0.5 ) +
+  scale_y_continuous(breaks = c(seq(0,1200,300), destaque[-c(3:5)]))+
+  theme_light() +
+  theme(
+    #panel.background  = element_rect(fill="#696969"),
+    panel.grid = element_blank()
+  ) +
+  annotate("text",
+           x=hora_inicial,
+           y= altitude_fortaleza,
+           hjust = -0.1,
+           vjust= -0.1,
+           label= paste0("Fortaleza ",altitude_fortaleza,"m"))+
+  annotate("text",
+           x=hora_inicial,
+           y= altitude_ny,
+           hjust = -5,
+           vjust= -0.1,
+           label= paste0("NY ",altitude_ny,"m"))+
+  annotate("text",
+           x=hora_inicial,
+           y= altitude_guaramiranga,
+           hjust = -0.1,
+           vjust= -0.1,
+           label= "Guaramiranga")+
+  annotate("text",
+           x=hora_inicial,
+           y= altitude_paris,
+           hjust = -6,
+           vjust= -0.1,
+           label= paste0("Paris ",altitude_paris,"m"))+
+  annotate("text",
+           x=hora_inicial,
+           y= altitude_santiago,
+           hjust = -0.1,
+           vjust= -0.1,
+           label= "Santiago del Chile") +
+  labs(
+    x= "Horário",
+    y= "Altitude (m)"
+  )
+
+
+```
+
+```{r}
+g_total<-
+patch_graph( c("2021-08-01 08:56:00", "2021-08-01 10:48:55"))
+
+g_total + geom_hline(yintercept = destaque[1:2], linetype = 5, alpha = 0.5 ) +
+    scale_y_continuous(breaks = c(seq(0,1200,300), destaque[(1:2)]))
+
+
+```
+
+```{r}
+library(leaflet)
+library(sp)
+
+# define bounding box with longitude/latitude coordinates
+
+spdf_geo <- g_total$data
+
+coordinates(spdf_geo) <- ~ longitude_degree + latitude_degree
+proj4string(spdf_geo) <- "+init=epsg:4326"
+
+bbox <- list(
+  p1 = list(long = min(g_total$data$longitude_degree ), lat=  min(g_total$data$latitude_degree) ), #long -122.522, lat = 37.707
+  p2 = list(long = max(g_total$data$longitude_degree), lat=  max(g_total$data$latitude_degree)) #long = -122.354, lat = 37.84
+)
+
+leaflet() %>%
+  addTiles() %>%
+  fitBounds(
+    lng1 = bbox$p1$long, lat1 = bbox$p1$lat,
+    lng2 = bbox$p2$long, lat2 = bbox$p2$lat,
+  ) %>%
+  addPolylines(data=coordinates(spdf_geo), color = "blue")
+```
+
+
+
+```{r}
+
+g_total_zoom<-
+  patch_graph( bottom_altitude =1000) +
+  geom_hline(yintercept = destaque[1:2], linetype = 5, alpha = 0.5 ) 
+  
+g_total_zoom  
+
+```
+
+```{r fig.height=10, fig.width= 6}
+
+df_ride<- complete_ride_data(g_total_zoom$data )
+
+
+graph_cinematic(df_ride)
+
+```
+
+
+
+```{r}
+
+g_trecho_1<-
+  patch_graph(limits= c("2021-08-01 09:33:00","2021-08-01 09:48:00"), bottom_altitude =1000)
+
+g_trecho_1
+    
+
+```
+
+```{r}
+
+library(leaflet)
+library(sp)
+
+
+
+# define bounding box with longitude/latitude coordinates
+
+spdf_geo <- g_trecho_1$data
+
+lat_marker_1<- max(g_trecho_1$data$latitude_degree)
+long_marker_1 <- g_trecho_1$data$longitude_degree[g_trecho_1$data$latitude_degree==lat_marker_1]
+
+
+long_marker_2<- min(g_trecho_1$data$longitude_degree )
+lat_marker_2 <- max(g_trecho_1$data$latitude_degree[g_trecho_1$data$longitude_degree==long_marker_2])
+
+
+lat_marker_3<- min(g_trecho_1$data$latitude_degree)
+long_marker_3 <- g_trecho_1$data$longitude_degree[g_trecho_1$data$latitude_degree==lat_marker_3]
+
+long_marker_4<- max(g_trecho_1$data$longitude_degree )
+lat_marker_4 <- g_trecho_1$data$latitude_degree[g_trecho_1$data$longitude_degree==long_marker_4]
+
+
+coordinates(spdf_geo) <- ~ longitude_degree + latitude_degree
+proj4string(spdf_geo) <- "+init=epsg:4326"
+
+bbox <- list(
+  p1 = list(long = min(g_trecho_1$data$longitude_degree ), lat=  min(g_trecho_1$data$latitude_degree) ), #long -122.522, lat = 37.707
+  p2 = list(long = max(g_trecho_1$data$longitude_degree), lat=  max(g_trecho_1$data$latitude_degree)) #long = -122.354, lat = 37.84
+)
+
+
+
+
+leaflet() %>%
+  addTiles() %>% 
+  fitBounds(
+    lng1 = bbox$p1$long, lat1 = bbox$p1$lat,
+    lng2 = bbox$p2$long, lat2 = bbox$p2$lat,
+  )  %>%
+  addPolylines(data=coordinates(spdf_geo), color = "blue") %>%
+  addMarkers(lng= long_marker_1, lat= lat_marker_1, label = "Início subida",
+    labelOptions = labelOptions(noHide = T) ) %>%
+  addMarkers(lng= long_marker_2, lat= lat_marker_2, label = "Fim subida",
+    labelOptions = labelOptions(noHide = T) ) %>%
+  addMarkers(lng= long_marker_3, lat= lat_marker_3, label = "Fim ciclovia",
+    labelOptions = labelOptions(noHide = T) ) %>%
+  addMarkers(lng= long_marker_4, lat= lat_marker_4, label = "Fim descida",
+    labelOptions = labelOptions(noHide = T, direction = "right") )
+
+```
+
+
+```{r, fig.height= 10, fig.width=6}
+
+df_trecho_1<- complete_ride_data(g_trecho_1$data )
+
+
+graph_cinematic(df_trecho_1)
+
+
+
+
+```
+
+
+
+```{r}
+g_trecho_2<-
+  patch_graph(limits= c("2021-08-01 10:29:22","2021-08-01 10:38:00"), bottom_altitude =1000)
+
+g_trecho_2
+
+```
+
+
+```{r}
+
+g_trecho_2_hard<-
+  patch_graph(limits= c("2021-08-01 10:29:00","2021-08-01 10:38:00"), bottom_altitude =1085)
+
+g_trecho_2_hard
+```
+
+
+
+```{r}
+# define bounding box with longitude/latitude coordinates
+
+spdf_geo <- g_trecho_2$data
+
+lat_marker_1<- max(g_trecho_2$data$latitude_degree)
+long_marker_1 <- g_trecho_2$data$longitude_degree[g_trecho_2$data$latitude_degree==lat_marker_1]
+
+
+long_marker_2<- min(g_trecho_2$data$longitude_degree )
+lat_marker_2 <- max(g_trecho_2$data$latitude_degree[g_trecho_2$data$longitude_degree==long_marker_2])
+
+
+lat_marker_3<-g_trecho_2$data$latitude_degree[nrow(g_trecho_2$data)]
+long_marker_3 <- g_trecho_2$data$longitude_degree[nrow(g_trecho_2$data)]
+
+
+
+coordinates(spdf_geo) <- ~ longitude_degree + latitude_degree
+proj4string(spdf_geo) <- "+init=epsg:4326"
+
+
+
+bbox <- list(
+  p1 = list(long = min(g_trecho_2$data$longitude_degree ), lat=  min(g_trecho_2$data$latitude_degree) ), #long -122.522, lat = 37.707
+  p2 = list(long = max(g_trecho_2$data$longitude_degree), lat=  max(g_trecho_2$data$latitude_degree)) #long = -122.354, lat = 37.84
+)
+
+
+
+
+leaflet() %>%
+  addTiles() %>% 
+  fitBounds(
+    lng1 = bbox$p1$long, lat1 = bbox$p1$lat,
+    lng2 = bbox$p2$long, lat2 = bbox$p2$lat,
+  )  %>%
+  addPolylines(data=coordinates(spdf_geo), color = "blue") %>%
+  addMarkers(lng= long_marker_1, lat= lat_marker_1, label = "Início subida",
+    labelOptions = labelOptions(noHide = T, direction = "right") ) %>%
+  addMarkers(lng= long_marker_2, lat= lat_marker_2, label = "Fim subida",
+    labelOptions = labelOptions(noHide = T, direction = "left") ) %>%
+  addMarkers(lng= long_marker_3, lat= lat_marker_3, label = "Fim descida",
+    labelOptions = labelOptions(noHide = T, direction = "right") )
+```
+
+```{r, fig.height=10, fig.width=6}
+
+
+df_trecho_2<- complete_ride_data(g_trecho_2$data )
+
+
+graph_cinematic(df_trecho_2)
+
+
+
+```
+
+```{r}
+g_trecho_2_1<-
+  patch_graph(limits= c("2021-08-01 10:29:27","2021-08-01 10:35:04"), bottom_altitude =1000)
+
+g_trecho_2_1
+```
+
+```{r, fig.height=10, fig.width=6}
+df_trecho_2_1<- complete_ride_data(g_trecho_2_1$data )
+
+
+graph_cinematic(df_trecho_2_1)
+
+```
+
